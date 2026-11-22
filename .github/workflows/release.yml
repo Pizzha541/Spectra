@@ -1,16 +1,26 @@
 name: Release SPECTRA
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build
+        required: true
+        type: string
   push:
     tags: ["v*"]
 permissions:
   contents: write
-concurrency: release-${{ github.ref }}
+concurrency: release-${{ inputs.tag || github.ref_name }}
 jobs:
   windows:
     if: github.repository == 'Pizzha541/Spectra'
     runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm }
       - uses: dtolnay/rust-toolchain@stable
@@ -18,7 +28,7 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content -Raw src-tauri/tauri.conf.json | ConvertFrom-Json).version
-          if ($env:GITHUB_REF_NAME -cne "v$version") { throw 'Tag and Tauri version must match' }
+          if ($env:RELEASE_TAG -cne "v$version") { throw 'Tag and Tauri version must match' }
       - run: npm ci
       - run: npm test
       - run: npm run tauri build -- -- --locked
@@ -27,6 +37,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-      - run: node scripts/publish-release.mjs
+      - shell: pwsh
+        run: |
+          $env:GITHUB_REF_NAME = $env:RELEASE_TAG
+          node scripts/publish-release.mjs
         env:
           GH_TOKEN: ${{ github.token }}
